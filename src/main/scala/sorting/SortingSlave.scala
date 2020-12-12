@@ -1,10 +1,10 @@
 package sorting
 
 import java.util.concurrent.TimeUnit
-import java.util.logging.{Level, Logger}
 
-import com.sorting.protos.sorting.{GreeterGrpc, HelloRequest}
 import com.sorting.protos.sorting.GreeterGrpc.GreeterBlockingStub
+import com.sorting.protos.sorting.{GreeterGrpc, HelloRequest}
+import com.typesafe.scalalogging.Logger
 import io.grpc.{ManagedChannel, ManagedChannelBuilder, StatusRuntimeException}
 
 object SortingSlave {
@@ -26,10 +26,10 @@ object SortingSlave {
 }
 
 class SortingSlave private(
-                                private val channel: ManagedChannel,
-                                private val blockingStub: GreeterBlockingStub
-                              ) {
-  private[this] val logger = Logger.getLogger(classOf[SortingSlave].getName)
+                            private val channel: ManagedChannel,
+                            private val blockingStub: GreeterBlockingStub
+                          ) {
+  private val logger = Logger(classOf[SortingSlave])
 
   def shutdown(): Unit = {
     channel.shutdown.awaitTermination(5, TimeUnit.SECONDS)
@@ -37,15 +37,15 @@ class SortingSlave private(
 
   /** Say hello to server. */
   def greet(name: String): Unit = {
-    logger.info("Will try to greet " + name + " ...")
+    logger.info(s"Will try to greet $name ...")
     val request = HelloRequest(name = name)
     try {
       val response = blockingStub.sayHello(request)
-      logger.info("Greeting: " + response.message)
+      logger.info(s"Greeting: $response.message")
     }
     catch {
       case e: StatusRuntimeException =>
-        logger.log(Level.WARNING, "RPC failed: {0}", e.getStatus)
+        logger.error(s"RPC failed: ${e.getStatus}")
     }
   }
 }
