@@ -5,7 +5,6 @@ import java.net.InetAddress
 import com.typesafe.scalalogging.Logger
 import com.sorting.protos.sorting.{GreeterGrpc, HelloReply, HelloRequest}
 import io.grpc.{Server, ServerBuilder}
-import sorting.SortingMaster.host
 
 import scala.concurrent.{ExecutionContext, Future}
 
