@@ -6,7 +6,7 @@ import java.util.concurrent.TimeUnit
 import com.typesafe.scalalogging.Logger
 import com.sorting.protos.sorting._
 import io.grpc.{ManagedChannelBuilder, Server, ServerBuilder}
-import sorting.SortingMaster.{numberOfSlaves, slaves}
+import sorting.SortingMaster.{numberOfSlaves, partitionTable, slaves}
 
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -21,6 +21,7 @@ object SortingMaster {
 
   // state variables
   var numberOfSlaves = 0
+  var partitionTable: Seq[String] = Seq()
 
   // master
   var masterServer: SortingMaster = null
@@ -98,15 +99,37 @@ class SortingMaster(logger: Logger) { self =>
 
     logger.info("sendInitCompleted start")
     val request = SendInitCompletedRequest(slaveHostTable = slaves.toSeq.map(slave => s"${slave.uri.getHost}:${slave.uri.getPort}"))
-    for (slave <- slaves) {
-      val response = slave.fromMasterStub.sendInitCompleted(request)
-    }
+    slaves.foreach(slave => {
+      val _ = slave.fromMasterStub.sendInitCompleted(request)
+    })
 
     this.getSamplingData()
   }
 
   def getSamplingData(): Unit = {
-    
+    var keys: Seq[String] = Seq()
+    slaves.foreach(slave => {
+      val request = GetSamplingDataRequest()
+      val response = slave.fromMasterStub.getSamplingData(request)
+      keys = keys ++ response.keys
+    })
+    keys = keys.filter(str => !str.isEmpty).sorted
+
+    // create partition table
+    val gap = keys.length / SortingMaster.numberOfSlaves
+    (1 to SortingMaster.numberOfSlaves - 1).foreach(i => {
+      SortingMaster.partitionTable = SortingMaster.partitionTable :+ keys(i * gap)
+    })
+
+    logger.info("partition table : " + SortingMaster.partitionTable.toString)
+
+    slaves.foreach(slave => {
+      // TODO: send partition table
+      val request = SendPartitionTableRequest()
+      val response = slave.fromMasterStub.sendPartitionTable(request)
+    })
+
+    // TODO: to next step
   }
 
   private class SlaveToMasterImpl extends SlaveToMasterGrpc.SlaveToMaster {

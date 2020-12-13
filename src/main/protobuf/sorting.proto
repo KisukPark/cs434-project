@@ -36,7 +36,10 @@ message SendInitCompletedRequest {
 message SendInitCompletedReply {}
 
 message GetSamplingDataRequest {}
-message GetSamplingDataReply {}
+message GetSamplingDataReply {
+  repeated string keys = 1;
+}
+
 message SendPartitionTableRequest {}
 message SendPartitionTableReply {}
 message SendPartitionStartRequest {}

@@ -1,12 +1,13 @@
 package sorting
 
+import java.io.{File, FileReader, LineNumberReader}
 import java.net.{InetAddress, URI}
 import java.util.concurrent.TimeUnit
 
 import com.sorting.protos.sorting._
 import com.typesafe.scalalogging.Logger
 import io.grpc.{ManagedChannelBuilder, Server, ServerBuilder}
-import sorting.SortingSlave.otherSlaves
+import sorting.SortingSlave.{myIndex, myPort, otherSlaves}
 
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.{ExecutionContext, Future}
@@ -23,7 +24,9 @@ object SortingSlave {
   var master: MasterServer = null
 
   // slave
+  var myAddress: String = null
   var myPort: Int = 0
+  var myIndex: Int = 0
   var slaveServer: SortingSlave = null
   var slaveHostTable: Seq[String] = null
   var otherSlaves = new ListBuffer[SlaveServer]()
@@ -78,7 +81,7 @@ class SortingSlave private(master: MasterServer, logger: Logger) {
   private def start(): Unit = {
     val portResponse = master.stub.getSlavePort(GetSlavePortRequest())
     SortingSlave.myPort = portResponse.port
-
+    SortingSlave.myAddress = s"${InetAddress.getLocalHost.getHostAddress}:${SortingSlave.myPort}"
     server = ServerBuilder
       .forPort(SortingSlave.myPort)
       .addService(MasterToSlaveGrpc.bindService(new MasterToSlaveImpl, ExecutionContext.global))
@@ -96,9 +99,10 @@ class SortingSlave private(master: MasterServer, logger: Logger) {
   private class MasterToSlaveImpl extends MasterToSlaveGrpc.MasterToSlave {
     override def sendInitCompleted(request: SendInitCompletedRequest): Future[SendInitCompletedReply] = {
       SortingSlave.slaveHostTable = request.slaveHostTable
+      SortingSlave.myIndex = SortingSlave.slaveHostTable.indexOf(SortingSlave.myAddress)
       SortingSlave.slaveHostTable.foreach(host => {
-        val uri = new URI("any://" + host)
-        if (uri.getPort != SortingSlave.myPort) {
+        if (host != SortingSlave.myAddress) {
+          val uri = new URI("any://" + host)
           val channel = ManagedChannelBuilder.forAddress(uri.getHost, uri.getPort).usePlaintext().build
           val stub = SlaveToSlaveGrpc.blockingStub(channel)
           otherSlaves += new SlaveServer(0, uri, channel, null, stub)
@@ -108,9 +112,22 @@ class SortingSlave private(master: MasterServer, logger: Logger) {
       Future.successful(SendInitCompletedReply())
     }
 
-    override def getSamplingData(request: GetSamplingDataRequest): Future[GetSamplingDataReply] = ???
+    override def getSamplingData(request: GetSamplingDataRequest): Future[GetSamplingDataReply] = {
+      val dir = new File(SortingSlave.inputDirs(SortingSlave.myIndex))
+      val samplingFileName = dir.listFiles()(0)
+      logger.info(s"getSamplingData from ${samplingFileName.getPath}")
 
-    override def sendPartitionTable(request: SendPartitionTableRequest): Future[SendPartitionTableReply] = ???
+      val lineNumberReader = new LineNumberReader(new FileReader(samplingFileName.getPath))
+      val keys = (1 to 10000).map(_ => lineNumberReader.readLine().split(" ")(0)).toSeq
+      val response = GetSamplingDataReply(keys = keys)
+      Future.successful(response)
+    }
+
+    override def sendPartitionTable(request: SendPartitionTableRequest): Future[SendPartitionTableReply] = {
+      // TODO: save partition table
+      logger.info("send partition table")
+      Future.successful(SendPartitionTableReply())
+    }
 
     override def sendPartitionStart(request: SendPartitionStartRequest): Future[SendPartitionStartReply] = ???
 
