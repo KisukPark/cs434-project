@@ -18,6 +18,7 @@ object SortingSlave {
   // state variables
   var inputDirs: List[String] = null
   var outputDir: String = null
+  var partitionTable: Seq[String] = null
 
   // master
   var masterURI: URI = null
@@ -124,8 +125,8 @@ class SortingSlave private(master: MasterServer, logger: Logger) {
     }
 
     override def sendPartitionTable(request: SendPartitionTableRequest): Future[SendPartitionTableReply] = {
-      // TODO: save partition table
-      logger.info("send partition table")
+      SortingSlave.partitionTable = request.partitionTable
+      logger.info(s"receive partition table ${SortingSlave.partitionTable.toString}")
       Future.successful(SendPartitionTableReply())
     }
 

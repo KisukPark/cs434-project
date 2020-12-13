@@ -40,7 +40,9 @@ message GetSamplingDataReply {
   repeated string keys = 1;
 }
 
-message SendPartitionTableRequest {}
+message SendPartitionTableRequest {
+  repeated string partitionTable = 1;
+}
 message SendPartitionTableReply {}
 message SendPartitionStartRequest {}
 message SendPartitionStartReply {}

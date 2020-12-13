@@ -125,7 +125,7 @@ class SortingMaster(logger: Logger) { self =>
 
     slaves.foreach(slave => {
       // TODO: send partition table
-      val request = SendPartitionTableRequest()
+      val request = SendPartitionTableRequest(partitionTable = SortingMaster.partitionTable)
       val response = slave.fromMasterStub.sendPartitionTable(request)
     })
 
