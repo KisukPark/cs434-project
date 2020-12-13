@@ -88,7 +88,7 @@ class SortingMaster(logger: Logger) { self =>
   def createConnectionToSlave(uri: URI): SlaveServer = {
     val channel = ManagedChannelBuilder.forAddress(uri.getHost, uri.getPort).usePlaintext().build
     val stub = MasterToSlaveGrpc.blockingStub(channel)
-    new SlaveServer(uri, channel, stub)
+    new SlaveServer(SortingMaster.slaves.length, uri, channel, stub, null)
   }
 
   def sendInitCompleted(): Unit = {
@@ -97,12 +97,16 @@ class SortingMaster(logger: Logger) { self =>
     }
 
     logger.info("sendInitCompleted start")
-//    val request = GetSamplingDataRequest()
-//
-//    for (slave <- slaves) {
-//      val response = slave.stub.getSamplingData(request)
-//      logger.info(s"sendSamplingStart to ${slave.uri.getPort}")
-//    }
+    val request = SendInitCompletedRequest(slaveHostTable = slaves.toSeq.map(slave => s"${slave.uri.getHost}:${slave.uri.getPort}"))
+    for (slave <- slaves) {
+      val response = slave.fromMasterStub.sendInitCompleted(request)
+    }
+
+    this.getSamplingData()
+  }
+
+  def getSamplingData(): Unit = {
+    
   }
 
   private class SlaveToMasterImpl extends SlaveToMasterGrpc.SlaveToMaster {

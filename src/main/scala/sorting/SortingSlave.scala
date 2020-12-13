@@ -5,8 +5,10 @@ import java.util.concurrent.TimeUnit
 
 import com.sorting.protos.sorting._
 import com.typesafe.scalalogging.Logger
-import io.grpc.{ManagedChannelBuilder, Server, ServerBuilder, StatusRuntimeException}
+import io.grpc.{ManagedChannelBuilder, Server, ServerBuilder}
+import sorting.SortingSlave.otherSlaves
 
+import scala.collection.mutable.ListBuffer
 import scala.concurrent.{ExecutionContext, Future}
 
 object SortingSlave {
@@ -21,8 +23,10 @@ object SortingSlave {
   var master: MasterServer = null
 
   // slave
+  var myPort: Int = 0
   var slaveServer: SortingSlave = null
-
+  var slaveHostTable: Seq[String] = null
+  var otherSlaves = new ListBuffer[SlaveServer]()
 
   def main(args: Array[String]): Unit = {
     parseArguments(args)
@@ -73,9 +77,10 @@ class SortingSlave private(master: MasterServer, logger: Logger) {
 
   private def start(): Unit = {
     val portResponse = master.stub.getSlavePort(GetSlavePortRequest())
+    SortingSlave.myPort = portResponse.port
 
     server = ServerBuilder
-      .forPort(portResponse.port)
+      .forPort(SortingSlave.myPort)
       .addService(MasterToSlaveGrpc.bindService(new MasterToSlaveImpl, ExecutionContext.global))
       .build.start
 
@@ -89,7 +94,19 @@ class SortingSlave private(master: MasterServer, logger: Logger) {
   }
 
   private class MasterToSlaveImpl extends MasterToSlaveGrpc.MasterToSlave {
-    override def sendInitCompleted(request: SendInitCompletedRequest): Future[SendInitCompletedReply] = ???
+    override def sendInitCompleted(request: SendInitCompletedRequest): Future[SendInitCompletedReply] = {
+      SortingSlave.slaveHostTable = request.slaveHostTable
+      SortingSlave.slaveHostTable.foreach(host => {
+        val uri = new URI("any://" + host)
+        if (uri.getPort != SortingSlave.myPort) {
+          val channel = ManagedChannelBuilder.forAddress(uri.getHost, uri.getPort).usePlaintext().build
+          val stub = SlaveToSlaveGrpc.blockingStub(channel)
+          otherSlaves += new SlaveServer(0, uri, channel, null, stub)
+          logger.info(s"create connect to ${uri.getPort}")
+        }
+      })
+      Future.successful(SendInitCompletedReply())
+    }
 
     override def getSamplingData(request: GetSamplingDataRequest): Future[GetSamplingDataReply] = ???
 

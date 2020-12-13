@@ -30,8 +30,11 @@ service MasterToSlave {
   rpc SendMergeStart (SendMergeStartRequest) returns (SendMergeStartReply) {}
 }
 
-message SendInitCompletedRequest {}
+message SendInitCompletedRequest {
+  repeated string slaveHostTable = 1;
+}
 message SendInitCompletedReply {}
+
 message GetSamplingDataRequest {}
 message GetSamplingDataReply {}
 message SendPartitionTableRequest {}
@@ -63,4 +66,9 @@ message SendIntroduceRequest {
 }
 
 message SendIntroduceReply {
+}
+
+// Slave -> Slave; implemented by slave
+service SlaveToSlave {
+
 }
