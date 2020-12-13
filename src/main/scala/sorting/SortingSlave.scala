@@ -3,10 +3,9 @@ package sorting
 import java.net.{InetAddress, URI}
 import java.util.concurrent.TimeUnit
 
-import com.sorting.protos.sorting.GreeterGrpc.GreeterBlockingStub
-import com.sorting.protos.sorting.{GreeterGrpc, HelloReply, HelloRequest}
+import com.sorting.protos.sorting._
 import com.typesafe.scalalogging.Logger
-import io.grpc.{ManagedChannel, ManagedChannelBuilder, Server, ServerBuilder, StatusRuntimeException}
+import io.grpc.{ManagedChannelBuilder, Server, ServerBuilder, StatusRuntimeException}
 
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -19,7 +18,7 @@ object SortingSlave {
 
   // master
   var masterURI: URI = null
-  var master: ProtoServer = null
+  var master: MasterServer = null
 
   // slave
   var slaveServer: SortingSlave = null
@@ -28,13 +27,14 @@ object SortingSlave {
   def main(args: Array[String]): Unit = {
     parseArguments(args)
     createConnectionToMaster()
+    startSlaveServer()
 
-    try {
-      slaveServer = new SortingSlave(master, logger)
-      slaveServer.greet("Kisukt")
-    } finally {
-      slaveServer.shutdown()
-    }
+  }
+
+  def startSlaveServer(): Unit = {
+    slaveServer = new SortingSlave(master, logger)
+    slaveServer.start()
+    slaveServer.blockUntilShutdown()
   }
 
   def parseArguments(args: Array[String]): Unit = {
@@ -49,13 +49,13 @@ object SortingSlave {
 
   def createConnectionToMaster(): Unit = {
     val channel = ManagedChannelBuilder.forAddress(masterURI.getHost, masterURI.getPort).usePlaintext().build
-    val stub = GreeterGrpc.blockingStub(channel)
-    master = new ProtoServer(masterURI, channel, stub)
+    val stub = SlaveToMasterGrpc.blockingStub(channel)
+    master = new MasterServer(masterURI, channel, stub)
     logger.info("createMasterChannel done")
   }
 }
 
-class SortingSlave private(master: ProtoServer, logger: Logger) {
+class SortingSlave private(master: MasterServer, logger: Logger) {
   private[this] var server: Server = null
 
   private def shutdown(): Unit = {
@@ -65,11 +65,21 @@ class SortingSlave private(master: ProtoServer, logger: Logger) {
     }
   }
 
+  private def blockUntilShutdown(): Unit = {
+    if (server != null) {
+      server.awaitTermination()
+    }
+  }
+
   private def start(): Unit = {
+    val portResponse = master.stub.getSlavePort(GetSlavePortRequest())
+
     server = ServerBuilder
-      .forPort(1111)
-      .addService(GreeterGrpc.bindService(new GreeterImpl, ExecutionContext.global))
+      .forPort(portResponse.port)
+      .addService(MasterToSlaveGrpc.bindService(new MasterToSlaveImpl, ExecutionContext.global))
       .build.start
+
+    master.stub.sendIntroduce(SendIntroduceRequest(host = InetAddress.getLocalHost.getHostAddress, port = portResponse.port))
 
     sys.addShutdownHook {
       System.err.println("*** shutting down gRPC server since JVM is shutting down")
@@ -78,38 +88,17 @@ class SortingSlave private(master: ProtoServer, logger: Logger) {
     }
   }
 
+  private class MasterToSlaveImpl extends MasterToSlaveGrpc.MasterToSlave {
+    override def sendInitCompleted(request: SendInitCompletedRequest): Future[SendInitCompletedReply] = ???
 
+    override def getSamplingData(request: GetSamplingDataRequest): Future[GetSamplingDataReply] = ???
 
+    override def sendPartitionTable(request: SendPartitionTableRequest): Future[SendPartitionTableReply] = ???
 
+    override def sendPartitionStart(request: SendPartitionStartRequest): Future[SendPartitionStartReply] = ???
 
+    override def sendShufflingStart(request: SendShufflingStartRequest): Future[SendShufflingStartReply] = ???
 
-
-  /** Say hello to server. */
-  def greet(name: String): Unit = {
-    logger.info(s"Will try to greet $name ...")
-    val request = HelloRequest(name = name)
-    try {
-      val response = master.stub.sayHelloYa(request)
-      logger.info(s"Greeting: $response.message")
-    }
-    catch {
-      case e: StatusRuntimeException =>
-        logger.error(s"RPC failed: ${e.getStatus}")
-    }
-  }
-
-  private class GreeterImpl extends GreeterGrpc.Greeter {
-    override def sayHelloYa(req: HelloRequest) = {
-      logger.info(s"sayHello is called : $req.name")
-
-      SortingMaster.numberOfSlaves -= 1
-
-      while (SortingMaster.numberOfSlaves > 0) {
-        // 모든 slave 로 부터 샘플 데이터가 올때 까지 대기
-      }
-
-      val reply = HelloReply(message = "Hello " + req.name)
-      Future.successful(reply)
-    }
+    override def sendMergeStart(request: SendMergeStartRequest): Future[SendMergeStartReply] = ???
   }
 }

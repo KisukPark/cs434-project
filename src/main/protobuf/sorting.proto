@@ -17,3 +17,50 @@ message HelloRequest {
 message HelloReply {
   string message = 1;
 }
+
+
+
+// Master -> Slave; implemented by slave
+service MasterToSlave {
+  rpc SendInitCompleted (SendInitCompletedRequest) returns (SendInitCompletedReply) {}
+  rpc GetSamplingData (GetSamplingDataRequest) returns (GetSamplingDataReply) {}
+  rpc SendPartitionTable (SendPartitionTableRequest) returns (SendPartitionTableReply) {}
+  rpc SendPartitionStart (SendPartitionStartRequest) returns (SendPartitionStartReply) {}
+  rpc SendShufflingStart (SendShufflingStartRequest) returns (SendShufflingStartReply) {}
+  rpc SendMergeStart (SendMergeStartRequest) returns (SendMergeStartReply) {}
+}
+
+message SendInitCompletedRequest {}
+message SendInitCompletedReply {}
+message GetSamplingDataRequest {}
+message GetSamplingDataReply {}
+message SendPartitionTableRequest {}
+message SendPartitionTableReply {}
+message SendPartitionStartRequest {}
+message SendPartitionStartReply {}
+message SendShufflingStartRequest {}
+message SendShufflingStartReply {}
+message SendMergeStartRequest {}
+message SendMergeStartReply {}
+
+
+// Slave -> Master; implemented by master
+service SlaveToMaster {
+  rpc GetSlavePort (GetSlavePortRequest) returns (GetSlavePortReply) {}
+  rpc SendIntroduce (SendIntroduceRequest) returns (SendIntroduceReply) {}
+}
+
+message GetSlavePortRequest {
+}
+
+message GetSlavePortReply {
+  int32 port = 1;
+}
+
+message SendIntroduceRequest {
+  string host = 1;
+  int32 port = 2;
+}
+
+message SendIntroduceReply {
+}

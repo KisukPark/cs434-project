@@ -1,16 +1,17 @@
 package sorting
 
-import java.net.InetAddress
+import java.net.{InetAddress, URI}
 import java.util.concurrent.TimeUnit
 
-import com.sorting.protos.sorting.GreeterGrpc.GreeterBlockingStub
 import com.typesafe.scalalogging.Logger
-import com.sorting.protos.sorting.{GreeterGrpc, HelloReply, HelloRequest}
-import io.grpc.{ManagedChannel, Server, ServerBuilder}
-import sorting.SortingMaster.{logger, slaves}
+import com.sorting.protos.sorting._
+import io.grpc.{ManagedChannelBuilder, Server, ServerBuilder}
+import sorting.SortingMaster.{numberOfSlaves, slaves}
 
 import scala.collection.mutable.ListBuffer
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.{ExecutionContext, Future}
+import scala.util.Success
 
 object SortingMaster {
   private val logger = Logger(classOf[SortingMaster])
@@ -25,11 +26,11 @@ object SortingMaster {
   var masterServer: SortingMaster = null
 
   // slaves
-  var slaves = new ListBuffer[ProtoServer]()
+  var slavePorts = new ListBuffer[Int]()
+  var slaves = new ListBuffer[SlaveServer]()
 
 
   def main(args: Array[String]): Unit = {
-
     parseArguments(args)
     startMasterServer()
 
@@ -37,6 +38,11 @@ object SortingMaster {
 
   def parseArguments(args: Array[String]): Unit = {
     numberOfSlaves = args(0).toInt
+
+    for (i <- 1 to numberOfSlaves) {
+      slavePorts += 7010 + i
+    }
+
     logger.info(s"parseArguments done : $numberOfSlaves")
   }
 
@@ -68,7 +74,7 @@ class SortingMaster(logger: Logger) { self =>
   private def start(): Unit = {
     server = ServerBuilder
       .forPort(SortingMaster.port)
-      .addService(GreeterGrpc.bindService(new GreeterImpl, ExecutionContext.global))
+      .addService(SlaveToMasterGrpc.bindService(new SlaveToMasterImpl, ExecutionContext.global))
       .build.start
     logger.info(s"Master starting: ${SortingMaster.address}")
 
@@ -79,20 +85,62 @@ class SortingMaster(logger: Logger) { self =>
     }
   }
 
-  private class GreeterImpl extends GreeterGrpc.Greeter {
-    override def sayHelloYa(req: HelloRequest) = {
-      logger.info(s"sayHello is called : $req.name")
+  def createConnectionToSlave(uri: URI): SlaveServer = {
+    val channel = ManagedChannelBuilder.forAddress(uri.getHost, uri.getPort).usePlaintext().build
+    val stub = MasterToSlaveGrpc.blockingStub(channel)
+    new SlaveServer(uri, channel, stub)
+  }
 
-      SortingMaster.numberOfSlaves -= 1
+  def sendInitCompleted(): Unit = {
+    if (SortingMaster.slaves.length < SortingMaster.numberOfSlaves) {
+      return
+    }
 
-      while (SortingMaster.numberOfSlaves > 0) {
-        // 모든 slave 로 부터 샘플 데이터가 올때 까지 대기
-      }
+    logger.info("sendInitCompleted start")
+//    val request = GetSamplingDataRequest()
+//
+//    for (slave <- slaves) {
+//      val response = slave.stub.getSamplingData(request)
+//      logger.info(s"sendSamplingStart to ${slave.uri.getPort}")
+//    }
+  }
 
-      val reply = HelloReply(message = "Hello " + req.name)
+  private class SlaveToMasterImpl extends SlaveToMasterGrpc.SlaveToMaster {
+    override def getSlavePort(request: GetSlavePortRequest): Future[GetSlavePortReply] = {
+      logger.info("getSlavePort start")
+      val reply = GetSlavePortReply(port = SortingMaster.slavePorts(0))
+      SortingMaster.slavePorts = SortingMaster.slavePorts.drop(1)
+      logger.info(s"done : remaining ports ${SortingMaster.slavePorts.length}")
       Future.successful(reply)
     }
+
+    override def sendIntroduce(request: SendIntroduceRequest): Future[SendIntroduceReply] = {
+      logger.info("sendIntroduce start")
+      val uri = new URI(s"any://${request.host}:${request.port}")
+      SortingMaster.slaves += createConnectionToSlave(uri)
+      logger.info(s"done : connect to ${uri.getHost}:${uri.getPort} , ${SortingMaster.slaves.length}")
+      Future
+        .successful(SendIntroduceReply())
+        .andThen({
+          case Success(_) => sendInitCompleted()
+        })
+    }
   }
+
+//  private class GreeterImpl extends GreeterGrpc.Greeter {
+//    override def sayHelloYa(req: HelloRequest) = {
+//      logger.info(s"sayHello is called : $req.name")
+//
+//      SortingMaster.numberOfSlaves -= 1
+//
+//      while (SortingMaster.numberOfSlaves > 0) {
+//        // 모든 slave 로 부터 샘플 데이터가 올때 까지 대기
+//      }
+//
+//      val reply = HelloReply(message = "Hello " + req.name)
+//      Future.successful(reply)
+//    }
+//  }
 
 }
 
