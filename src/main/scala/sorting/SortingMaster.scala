@@ -44,8 +44,6 @@ object SortingMaster {
     for (i <- 1 to numberOfSlaves) {
       slavePorts += 7010 + i
     }
-
-    logger.info(s"parseArguments done : $numberOfSlaves")
   }
 
   def startMasterServer(): Unit = {
@@ -55,7 +53,6 @@ object SortingMaster {
   }
 
   def cleanTempDir(): Unit = {
-    logger.info("clean dir")
     val tempPath: Path = Path("./temp")
     tempPath.deleteRecursively()
   }
@@ -84,7 +81,7 @@ class SortingMaster(logger: Logger) { self =>
       .forPort(SortingMaster.port)
       .addService(SlaveToMasterGrpc.bindService(new SlaveToMasterImpl, ExecutionContext.global))
       .build.start
-    logger.info(s"Master starting: ${SortingMaster.address}")
+    logger.info(s"Master starting  ${SortingMaster.address}")
 
     sys.addShutdownHook {
       System.err.println("*** shutting down gRPC server since JVM is shutting down")
@@ -104,16 +101,17 @@ class SortingMaster(logger: Logger) { self =>
       return
     }
 
-    logger.info("sendInitCompleted start")
     val request = SendInitCompletedRequest(slaveHostTable = slaves.toSeq.map(slave => s"${slave.uri.getHost}:${slave.uri.getPort}"))
     slaves.foreach(slave => {
       val _ = slave.fromMasterStub.sendInitCompleted(request)
     })
 
+    logger.info("Complete init step")
     this.getSamplingData()
   }
 
   def getSamplingData(): Unit = {
+    logger.info("Get sampling data from slaves")
     var keys: Seq[String] = Seq()
     slaves.foreach(slave => {
       val request = GetSamplingDataRequest()
@@ -128,7 +126,7 @@ class SortingMaster(logger: Logger) { self =>
       SortingMaster.partitionTable = SortingMaster.partitionTable :+ keys(i * gap)
     })
 
-    logger.info("partition table : " + SortingMaster.partitionTable.toString)
+    logger.info(s"Generate partitioning table ${SortingMaster.partitionTable.toString}")
 
     slaves.foreach(slave => {
       val request = SendPartitionTableRequest(partitionTable = SortingMaster.partitionTable)
@@ -139,7 +137,6 @@ class SortingMaster(logger: Logger) { self =>
   }
 
   def sendPartitionStart(): Unit = {
-    logger.info("sendPartitionStart")
     slaves.foreach(slave => {
       val request = SendPartitionStartRequest()
       val response = slave.fromMasterStub.sendPartitionStart(request)
@@ -149,18 +146,15 @@ class SortingMaster(logger: Logger) { self =>
 
   private class SlaveToMasterImpl extends SlaveToMasterGrpc.SlaveToMaster {
     override def getSlavePort(request: GetSlavePortRequest): Future[GetSlavePortReply] = {
-      logger.info("getSlavePort start")
       val reply = GetSlavePortReply(port = SortingMaster.slavePorts(0))
       SortingMaster.slavePorts = SortingMaster.slavePorts.drop(1)
-      logger.info(s"done : remaining ports ${SortingMaster.slavePorts.length}")
       Future.successful(reply)
     }
 
     override def sendIntroduce(request: SendIntroduceRequest): Future[SendIntroduceReply] = {
-      logger.info("sendIntroduce start")
       val uri = new URI(s"any://${request.host}:${request.port}")
       SortingMaster.slaves += createConnectionToSlave(uri)
-      logger.info(s"done : connect to ${uri.getHost}:${uri.getPort} , ${SortingMaster.slaves.length}")
+      logger.info(s"Connect to slave ${uri.getHost}:${uri.getPort}, waiting ${SortingMaster.numberOfSlaves - SortingMaster.slaves.length} more...")
       Future
         .successful(SendIntroduceReply())
         .andThen({

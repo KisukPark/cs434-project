@@ -41,28 +41,6 @@ object SortingSlave {
     startSlaveServer()
   }
 
-  def test(): Unit = {
-//    val dirPath: Path = Path("./temp/bye")
-//    dirPath.createDirectory()
-//
-//    val file = new File("./temp/hi.txt")
-//    if (!file.exists()) {
-//      file.createNewFile()
-//    }
-//    val bw = new BufferedWriter(new FileWriter(file))
-//    bw.write("hi\n")
-//    bw.write("ho\n")
-//    bw.close()
-
-
-    val r = new scala.util.Random
-    val sb = new StringBuilder
-    for (i <- 1 to 20) {
-      sb.append(r.nextPrintableChar)
-    }
-    logger.info(sb.toString)
-  }
-
   def startSlaveServer(): Unit = {
     slaveServer = new SortingSlave(master, logger)
     slaveServer.start()
@@ -76,14 +54,13 @@ object SortingSlave {
     val indexO = args.indexOf("-O", indexI)
     inputDirs = args.slice(indexI + 1, indexO).toList
     outputDir = args(indexO + 1)
-    logger.info("parseArguments done")
   }
 
   def createConnectionToMaster(): Unit = {
     val channel = ManagedChannelBuilder.forAddress(masterURI.getHost, masterURI.getPort).usePlaintext().build
     val stub = SlaveToMasterGrpc.blockingStub(channel)
     master = new MasterServer(masterURI, channel, stub)
-    logger.info("createMasterChannel done")
+    logger.info(s"Connect to master ${masterURI.getHost}:${masterURI.getPort}")
   }
 }
 
@@ -123,28 +100,23 @@ class SortingSlave private(master: MasterServer, logger: Logger) {
   }
 
   def sortAndParition(filePath: String): Unit = {
+    logger.info(s"Start Reading/Sorting/Partitioning ${filePath}")
+
     val lineNumberReader = new LineNumberReader(new FileReader(filePath))
     var lines = Seq[String]()
     var line: String = null
 
     // read file
-    var i = 0
-    var j = 0
     line = lineNumberReader.readLine()
     while (line != null) {
       lines = lines :+ line
       line = lineNumberReader.readLine()
-      i += 1
-      if (i >= 100) {
-        logger.info(s"${j*100+i} lines")
-        j += 1
-        i = 0
-      }
     }
+    logger.info(s"- Read total ${lines.length} data")
 
     // sort
     lines = lines.sortBy(a => util.getKeyFromLine(a))
-    logger.info(s"read and sort done, total ${lines.length} lines")
+    logger.info(s"- Sort data")
 
     // partitioning
     var writers = Seq[BufferedWriter]()
@@ -159,16 +131,13 @@ class SortingSlave private(master: MasterServer, logger: Logger) {
       // create temp file
       val file = new File(s"./temp/${SortingSlave.myAddress}/${slaveAddress}/tmp${util.getRandomTempKey}")
       if (!file.exists()) {
-        logger.info(s"create: ${file.getName}")
         file.createNewFile()
-        logger.info("created")
       }
 
       // create buffered writer
       val bw = new BufferedWriter(new FileWriter(file))
       writers = writers :+ bw
     })
-    logger.info("create temp directory done")
 
     val reversedTable = SortingSlave.partitionTable.reverse
     lines.foreach(line => {
@@ -179,21 +148,18 @@ class SortingSlave private(master: MasterServer, logger: Logger) {
       }
 
       if (largestKey.isEmpty) {
-        logger.info(s"${util.getKeyFromLine(line)} -> 0")
         bw = writers(0)
       } else {
         val index = reversedTable.indexOf(largestKey)
-        logger.info(s"${util.getKeyFromLine(line)} -> 2 - ${index}")
         bw = writers(SortingSlave.slaveHostTable.length - index - 1)
       }
 
       bw.write(line)
       bw.write("\n")
     })
-
-    logger.info("partitioning end")
-
     writers.foreach(w => w.close())
+
+    logger.info(s"- Partitioning done")
   }
 
   def getDataFilePath(): List[String] = {
@@ -224,7 +190,7 @@ class SortingSlave private(master: MasterServer, logger: Logger) {
           val channel = ManagedChannelBuilder.forAddress(uri.getHost, uri.getPort).usePlaintext().build
           val stub = SlaveToSlaveGrpc.blockingStub(channel)
           otherSlaves += new SlaveServer(0, uri, channel, null, stub)
-          logger.info(s"create connect to ${uri.getPort}")
+          logger.info(s"Connect to other slave ${uri.getPort}")
         }
       })
       Future.successful(SendInitCompletedReply())
@@ -233,7 +199,7 @@ class SortingSlave private(master: MasterServer, logger: Logger) {
     override def getSamplingData(request: GetSamplingDataRequest): Future[GetSamplingDataReply] = {
       val dir = new File(SortingSlave.inputDirs(SortingSlave.myIndex))
       val samplingFileName = dir.listFiles()(0)
-      logger.info(s"getSamplingData from ${samplingFileName.getPath}")
+      logger.info(s"Sampling from ${samplingFileName.getPath}")
 
       val lineNumberReader = new LineNumberReader(new FileReader(samplingFileName.getPath))
       val keys = (1 to 10000).map(_ => util.getKeyFromLine(lineNumberReader.readLine())).toSeq
@@ -242,13 +208,12 @@ class SortingSlave private(master: MasterServer, logger: Logger) {
     }
 
     override def sendPartitionTable(request: SendPartitionTableRequest): Future[SendPartitionTableReply] = {
-      logger.info(s"sendPartitionTable ${request.partitionTable.toString}")
+      logger.info(s"Receive partitioning table ${request.partitionTable.toString}")
       SortingSlave.partitionTable = request.partitionTable
       Future.successful(SendPartitionTableReply())
     }
 
     override def sendPartitionStart(request: SendPartitionStartRequest): Future[SendPartitionStartReply] = {
-      logger.info(s"sendPartitionStart")
       getDataFilePath.foreach(path => sortAndParition(path))
       Future.successful(SendPartitionStartReply())
     }
