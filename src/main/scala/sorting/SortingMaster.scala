@@ -11,6 +11,7 @@ import sorting.SortingMaster.{numberOfSlaves, partitionTable, slaves}
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.{ExecutionContext, Future}
+import scala.reflect.io.Path
 import scala.util.Success
 
 object SortingMaster {
@@ -33,8 +34,8 @@ object SortingMaster {
 
   def main(args: Array[String]): Unit = {
     parseArguments(args)
+    cleanTempDir()
     startMasterServer()
-
   }
 
   def parseArguments(args: Array[String]): Unit = {
@@ -51,6 +52,12 @@ object SortingMaster {
     masterServer = new SortingMaster(logger)
     masterServer.start()
     masterServer.blockUntilShutdown()
+  }
+
+  def cleanTempDir(): Unit = {
+    logger.info("clean dir")
+    val tempPath: Path = Path("./temp")
+    tempPath.deleteRecursively()
   }
 }
 
@@ -124,11 +131,19 @@ class SortingMaster(logger: Logger) { self =>
     logger.info("partition table : " + SortingMaster.partitionTable.toString)
 
     slaves.foreach(slave => {
-      // TODO: send partition table
       val request = SendPartitionTableRequest(partitionTable = SortingMaster.partitionTable)
       val response = slave.fromMasterStub.sendPartitionTable(request)
     })
 
+    this.sendPartitionStart()
+  }
+
+  def sendPartitionStart(): Unit = {
+    logger.info("sendPartitionStart")
+    slaves.foreach(slave => {
+      val request = SendPartitionStartRequest()
+      val response = slave.fromMasterStub.sendPartitionStart(request)
+    })
     // TODO: to next step
   }
 
