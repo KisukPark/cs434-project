@@ -8,7 +8,7 @@ class Utils {
   def getRandomTempKey(): String = {
     val r = new scala.util.Random
     val sb = new StringBuilder
-    for (i <- 1 to 20) {
+    for (i <- 1 to 3) {
       sb.append(r.nextInt())
     }
     sb.toString

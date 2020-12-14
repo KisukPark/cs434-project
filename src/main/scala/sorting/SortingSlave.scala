@@ -127,8 +127,6 @@ class SortingSlave private(master: MasterServer, logger: Logger) {
     var lines = Seq[String]()
     var line: String = null
 
-    logger.info("read and sort start")
-
     // read file
     var i = 0
     var j = 0
@@ -145,13 +143,10 @@ class SortingSlave private(master: MasterServer, logger: Logger) {
     }
 
     // sort
-    lines.sortBy(a => util.getKeyFromLine(a))
-
+    lines = lines.sortBy(a => util.getKeyFromLine(a))
     logger.info(s"read and sort done, total ${lines.length} lines")
 
     // partitioning
-
-    logger.info("partitioning start")
     var writers = Seq[BufferedWriter]()
 
     SortingSlave.slaveHostTable.foreach(slaveAddress => {
@@ -173,9 +168,32 @@ class SortingSlave private(master: MasterServer, logger: Logger) {
       val bw = new BufferedWriter(new FileWriter(file))
       writers = writers :+ bw
     })
+    logger.info("create temp directory done")
+
+    val reversedTable = SortingSlave.partitionTable.reverse
+    lines.foreach(line => {
+      var bw: BufferedWriter = null
+      val largestKey = reversedTable.find(pk => pk <= util.getKeyFromLine(line)) match {
+        case None => ""
+        case Some(s: String) => s
+      }
+
+      if (largestKey.isEmpty) {
+        logger.info(s"${util.getKeyFromLine(line)} -> 0")
+        bw = writers(0)
+      } else {
+        val index = reversedTable.indexOf(largestKey)
+        logger.info(s"${util.getKeyFromLine(line)} -> 2 - ${index}")
+        bw = writers(SortingSlave.slaveHostTable.length - index - 1)
+      }
+
+      bw.write(line)
+      bw.write("\n")
+    })
+
+    logger.info("partitioning end")
 
     writers.foreach(w => w.close())
-    logger.info("partitioning end")
   }
 
   def getDataFilePath(): List[String] = {
